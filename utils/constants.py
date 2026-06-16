@@ -1,0 +1,5 @@
+ALLOCATION = {
+ "ZEN":50,
+ "MOMENTUM":35,
+ "SATELLITE":15
+}
