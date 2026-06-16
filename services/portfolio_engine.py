@@ -1,1 +1,674 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import yfinance as yf
+
+
+UNIVERSE = pd.DataFrame(
+    [
+        {
+            "Actif": "Amundi PEA MSCI World",
+            "Nom court": "World",
+            "ISIN": "FR001400U5Q4",
+            "Ticker": "DCAM.PA",
+            "Poche": "Socle Zen",
+            "Type": "ETF",
+            "Secteur": "Monde",
+            "Allocation cible (%)": 20.0,
+            "Expo EUR": 15.0,
+            "Expo USD": 70.0,
+            "Expo Autres": 15.0,
+        },
+        {
+            "Actif": "Amundi PEA S&P 500",
+            "Nom court": "S&P 500",
+            "ISIN": "FR0011871128",
+            "Ticker": "PSP5.PA",
+            "Poche": "Socle Zen",
+            "Type": "ETF",
+            "Secteur": "USA",
+            "Allocation cible (%)": 15.0,
+            "Expo EUR": 0.0,
+            "Expo USD": 100.0,
+            "Expo Autres": 0.0,
+        },
+        {
+            "Actif": "Amundi PEA Nasdaq-100",
+            "Nom court": "Nasdaq-100",
+            "ISIN": "FR0011871110",
+            "Ticker": "PUST.PA",
+            "Poche": "Socle Zen",
+            "Type": "ETF",
+            "Secteur": "Tech US",
+            "Allocation cible (%)": 10.0,
+            "Expo EUR": 0.0,
+            "Expo USD": 100.0,
+            "Expo Autres": 0.0,
+        },
+        {
+            "Actif": "Amundi PEA MSCI Europe",
+            "Nom court": "Europe",
+            "ISIN": "FR0013412038",
+            "Ticker": "PCEU.PA",
+            "Poche": "Socle Zen",
+            "Type": "ETF",
+            "Secteur": "Europe",
+            "Allocation cible (%)": 5.0,
+            "Expo EUR": 85.0,
+            "Expo USD": 0.0,
+            "Expo Autres": 15.0,
+        },
+        {
+            "Actif": "GUARD BNP Défense",
+            "Nom court": "BNP Défense",
+            "ISIN": "LU3047998896",
+            "Ticker": "GUARD.PA",
+            "Poche": "Momentum",
+            "Type": "ETF",
+            "Secteur": "Défense",
+            "Allocation cible (%)": 10.0,
+            "Expo EUR": 65.0,
+            "Expo USD": 25.0,
+            "Expo Autres": 10.0,
+        },
+        {
+            "Actif": "Schneider Electric",
+            "Nom court": "Schneider",
+            "ISIN": "FR0000121972",
+            "Ticker": "SU.PA",
+            "Poche": "Momentum",
+            "Type": "Action",
+            "Secteur": "Industrie",
+            "Allocation cible (%)": 5.0,
+            "Expo EUR": 100.0,
+            "Expo USD": 0.0,
+            "Expo Autres": 0.0,
+        },
+        {
+            "Actif": "Air Liquide",
+            "Nom court": "Air Liquide",
+            "ISIN": "FR0000120073",
+            "Ticker": "AI.PA",
+            "Poche": "Momentum",
+            "Type": "Action",
+            "Secteur": "Industrie",
+            "Allocation cible (%)": 3.0,
+            "Expo EUR": 100.0,
+            "Expo USD": 0.0,
+            "Expo Autres": 0.0,
+        },
+        {
+            "Actif": "TotalEnergies",
+            "Nom court": "TotalEnergies",
+            "ISIN": "FR0000120271",
+            "Ticker": "TTE.PA",
+            "Poche": "Momentum",
+            "Type": "Action",
+            "Secteur": "Énergie",
+            "Allocation cible (%)": 2.0,
+            "Expo EUR": 100.0,
+            "Expo USD": 0.0,
+            "Expo Autres": 0.0,
+        },
+        {
+            "Actif": "Dassault Aviation",
+            "Nom court": "Dassault Aviation",
+            "ISIN": "FR0014004L86",
+            "Ticker": "AM.PA",
+            "Poche": "Momentum",
+            "Type": "Action",
+            "Secteur": "Défense",
+            "Allocation cible (%)": 5.0,
+            "Expo EUR": 100.0,
+            "Expo USD": 0.0,
+            "Expo Autres": 0.0,
+        },
+        {
+            "Actif": "Thales",
+            "Nom court": "Thales",
+            "ISIN": "FR0000121329",
+            "Ticker": "HO.PA",
+            "Poche": "Momentum",
+            "Type": "Action",
+            "Secteur": "Défense",
+            "Allocation cible (%)": 5.0,
+            "Expo EUR": 100.0,
+            "Expo USD": 0.0,
+            "Expo Autres": 0.0,
+        },
+        {
+            "Actif": "STMicroelectronics",
+            "Nom court": "STMicro",
+            "ISIN": "NL0000226223",
+            "Ticker": "STMPA.PA",
+            "Poche": "Satellite",
+            "Type": "Action",
+            "Secteur": "Semi-conducteurs",
+            "Allocation cible (%)": 5.0,
+            "Expo EUR": 100.0,
+            "Expo USD": 0.0,
+            "Expo Autres": 0.0,
+        },
+        {
+            "Actif": "Sanofi",
+            "Nom court": "Sanofi",
+            "ISIN": "FR0000120578",
+            "Ticker": "SAN.PA",
+            "Poche": "Momentum",
+            "Type": "Action",
+            "Secteur": "Santé",
+            "Allocation cible (%)": 5.0,
+            "Expo EUR": 100.0,
+            "Expo USD": 0.0,
+            "Expo Autres": 0.0,
+        },
+        {
+            "Actif": "Amundi PEA Émergents",
+            "Nom court": "Émergents",
+            "ISIN": "FR0013412020",
+            "Ticker": "PAEEM.PA",
+            "Poche": "Satellite",
+            "Type": "ETF",
+            "Secteur": "Émergents",
+            "Allocation cible (%)": 10.0,
+            "Expo EUR": 0.0,
+            "Expo USD": 15.0,
+            "Expo Autres": 85.0,
+        },
+    ]
+)
+
+MARKET_INDICES = {
+    "CAC 40": "^FCHI",
+    "S&P 500": "^GSPC",
+    "Nasdaq 100": "^NDX",
+    "MSCI World (proxy)": "DCAM.PA",
+}
+
+
+def _safe_index(index: pd.Index) -> pd.DatetimeIndex:
+    parsed = pd.DatetimeIndex(pd.to_datetime(index))
+    if parsed.tz is not None:
+        parsed = parsed.tz_convert(None)
+    return parsed
+
+
+def _return_at_sessions(close: pd.Series, sessions: int) -> float:
+    if len(close) <= sessions:
+        return float("nan")
+    base = float(close.iloc[-sessions - 1])
+    last = float(close.iloc[-1])
+    if base == 0:
+        return float("nan")
+    return (last / base - 1.0) * 100.0
+
+
+def _ytd_return(close: pd.Series) -> float:
+    if close.empty:
+        return float("nan")
+    last_date = pd.Timestamp(close.index[-1])
+    previous = close[close.index.year < last_date.year]
+    if previous.empty:
+        return float("nan")
+    base = float(previous.iloc[-1])
+    return (float(close.iloc[-1]) / base - 1.0) * 100.0 if base else float("nan")
+
+
+def _scale(value: float, lower: float, upper: float) -> float:
+    if pd.isna(value):
+        return 0.0
+    return float(np.clip((value - lower) / (upper - lower) * 100.0, 0.0, 100.0))
+
+
+def alpha_zen_score(
+    momentum_3m: float,
+    momentum_6m: float,
+    momentum_12m: float,
+    distance_mm200: float,
+    volatility: float,
+) -> float:
+    m3_score = _scale(momentum_3m, -15.0, 30.0)
+    m6_score = _scale(momentum_6m, -25.0, 50.0)
+    m12_score = _scale(momentum_12m, -35.0, 80.0)
+
+    if pd.isna(distance_mm200):
+        trend_score = 0.0
+    elif distance_mm200 >= 3.0:
+        trend_score = 100.0
+    elif distance_mm200 >= 0.0:
+        trend_score = 65.0
+    elif distance_mm200 >= -3.0:
+        trend_score = 25.0
+    else:
+        trend_score = 0.0
+
+    volatility_score = (
+        float(np.clip(110.0 - max(float(volatility), 0.0) * 2.5, 0.0, 100.0))
+        if pd.notna(volatility)
+        else 0.0
+    )
+
+    score = (
+        0.20 * m3_score
+        + 0.30 * m6_score
+        + 0.30 * m12_score
+        + 0.15 * trend_score
+        + 0.05 * volatility_score
+    )
+    return round(float(score), 0)
+
+
+def decision_signal(score: float, distance_mm200: float) -> str:
+    if pd.isna(distance_mm200):
+        return "⚪ Données insuffisantes"
+    if distance_mm200 < 0:
+        return "🔴 Sous MM200"
+    if distance_mm200 < 3:
+        return "🟠 Surveiller"
+    if score >= 75:
+        return "🟢 Renforcer"
+    if score >= 55:
+        return "✅ Conserver"
+    return "🟠 Surveiller"
+
+
+def fetch_market_bundle(
+    tickers: list[str],
+    period: str = "3y",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    snapshots: list[dict[str, Any]] = []
+    close_series: dict[str, pd.Series] = {}
+
+    for ticker in tickers:
+        row: dict[str, Any] = {
+            "Ticker": ticker,
+            "Cours (€)": np.nan,
+            "Date du cours": pd.NaT,
+            "MM50 (€)": np.nan,
+            "MM200 (€)": np.nan,
+            "Distance MM200 (%)": np.nan,
+            "Momentum 3M (%)": np.nan,
+            "Momentum 6M (%)": np.nan,
+            "Momentum 12M (%)": np.nan,
+            "Performance YTD (%)": np.nan,
+            "Volatilité 1A (%)": np.nan,
+            "Score Alpha Zen": 0.0,
+            "Signal": "⚪ Données indisponibles",
+            "Statut données": "Indisponible",
+        }
+
+        try:
+            history = yf.Ticker(ticker).history(
+                period=period,
+                interval="1d",
+                auto_adjust=False,
+                repair=True,
+                actions=False,
+                timeout=20,
+            )
+            if history.empty or "Close" not in history.columns:
+                snapshots.append(row)
+                continue
+
+            close = history["Close"].dropna().astype(float)
+            if close.empty:
+                snapshots.append(row)
+                continue
+
+            close.index = _safe_index(close.index)
+            close = close[~close.index.duplicated(keep="last")].sort_index()
+            close_series[ticker] = close.rename(ticker)
+
+            price = float(close.iloc[-1])
+            mm50 = float(close.tail(50).mean()) if len(close) >= 50 else np.nan
+            mm200 = float(close.tail(200).mean()) if len(close) >= 200 else np.nan
+            distance_mm200 = (
+                (price / mm200 - 1.0) * 100.0
+                if pd.notna(mm200) and mm200 != 0
+                else np.nan
+            )
+            returns = close.pct_change().dropna()
+            volatility = (
+                float(returns.tail(252).std() * np.sqrt(252) * 100.0)
+                if len(returns) >= 20
+                else np.nan
+            )
+            m3 = _return_at_sessions(close, 63)
+            m6 = _return_at_sessions(close, 126)
+            m12 = _return_at_sessions(close, 252)
+            ytd = _ytd_return(close)
+            score = alpha_zen_score(m3, m6, m12, distance_mm200, volatility)
+
+            row.update(
+                {
+                    "Cours (€)": price,
+                    "Date du cours": pd.Timestamp(close.index[-1]),
+                    "MM50 (€)": mm50,
+                    "MM200 (€)": mm200,
+                    "Distance MM200 (%)": distance_mm200,
+                    "Momentum 3M (%)": m3,
+                    "Momentum 6M (%)": m6,
+                    "Momentum 12M (%)": m12,
+                    "Performance YTD (%)": ytd,
+                    "Volatilité 1A (%)": volatility,
+                    "Score Alpha Zen": score,
+                    "Signal": decision_signal(score, distance_mm200),
+                    "Statut données": "OK",
+                }
+            )
+        except Exception as exc:
+            row["Statut données"] = f"Erreur {type(exc).__name__}"
+
+        snapshots.append(row)
+
+    prices = (
+        pd.concat(close_series.values(), axis=1).sort_index().ffill()
+        if close_series
+        else pd.DataFrame()
+    )
+    return pd.DataFrame(snapshots), prices
+
+
+def fetch_market_overview() -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for label, ticker in MARKET_INDICES.items():
+        try:
+            history = yf.Ticker(ticker).history(
+                period="1y",
+                interval="1d",
+                auto_adjust=False,
+                actions=False,
+                timeout=15,
+            )
+            close = history["Close"].dropna().astype(float)
+            daily = (
+                (float(close.iloc[-1]) / float(close.iloc[-2]) - 1.0) * 100.0
+                if len(close) >= 2
+                else np.nan
+            )
+            rows.append(
+                {
+                    "Marché": label,
+                    "Ticker": ticker,
+                    "Cours": float(close.iloc[-1]),
+                    "Variation (%)": daily,
+                }
+            )
+        except Exception:
+            rows.append(
+                {
+                    "Marché": label,
+                    "Ticker": ticker,
+                    "Cours": np.nan,
+                    "Variation (%)": np.nan,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def build_default_positions(
+    universe: pd.DataFrame,
+    market: pd.DataFrame,
+    capital: float,
+) -> pd.DataFrame:
+    frame = universe[["Ticker", "Allocation cible (%)"]].merge(
+        market[["Ticker", "Cours (€)"]],
+        on="Ticker",
+        how="left",
+    )
+    frame["Montant cible (€)"] = capital * frame["Allocation cible (%)"] / 100.0
+    frame["Quantité"] = np.where(
+        frame["Cours (€)"].fillna(0) > 0,
+        np.floor(frame["Montant cible (€)"] / frame["Cours (€)"]),
+        0,
+    )
+    frame["PRU (€)"] = frame["Cours (€)"].fillna(0.0)
+    return frame[["Ticker", "Quantité", "PRU (€)"]].copy()
+
+
+def clean_positions(positions: pd.DataFrame) -> pd.DataFrame:
+    required = ["Ticker", "Quantité", "PRU (€)"]
+    if positions is None or positions.empty:
+        return pd.DataFrame(columns=required)
+
+    result = positions.copy()
+    result["Ticker"] = result["Ticker"].replace({"STM.PA": "STMPA.PA"})
+    for column in required:
+        if column not in result.columns:
+            result[column] = 0.0 if column != "Ticker" else ""
+    result["Quantité"] = pd.to_numeric(result["Quantité"], errors="coerce").fillna(0.0)
+    result["PRU (€)"] = pd.to_numeric(result["PRU (€)"], errors="coerce").fillna(0.0)
+    return result[required].drop_duplicates("Ticker", keep="last")
+
+
+def calculate_portfolio(
+    universe: pd.DataFrame,
+    market: pd.DataFrame,
+    positions: pd.DataFrame,
+    capital_reference: float,
+) -> tuple[pd.DataFrame, dict[str, float]]:
+    positions = clean_positions(positions)
+    frame = (
+        universe.merge(positions, on="Ticker", how="left")
+        .merge(market, on="Ticker", how="left")
+    )
+
+    frame["Quantité"] = pd.to_numeric(frame["Quantité"], errors="coerce").fillna(0.0)
+    frame["PRU (€)"] = pd.to_numeric(frame["PRU (€)"], errors="coerce").fillna(0.0)
+    frame["Cours (€)"] = pd.to_numeric(frame["Cours (€)"], errors="coerce").fillna(0.0)
+    frame["Investi (€)"] = frame["Quantité"] * frame["PRU (€)"]
+    frame["Valeur actuelle (€)"] = frame["Quantité"] * frame["Cours (€)"]
+    frame["Plus-value (€)"] = frame["Valeur actuelle (€)"] - frame["Investi (€)"]
+    frame["Plus-value (%)"] = (
+        frame["Plus-value (€)"]
+        .div(frame["Investi (€)"].replace(0, np.nan))
+        .mul(100.0)
+        .fillna(0.0)
+    )
+
+    invested = float(frame["Investi (€)"].sum())
+    positions_value = float(frame["Valeur actuelle (€)"].sum())
+    cash = max(float(capital_reference) - invested, 0.0)
+    total_value = positions_value + cash
+    gain = positions_value - invested
+    performance = gain / invested * 100.0 if invested else 0.0
+
+    if positions_value > 0:
+        frame["Poids réel (%)"] = frame["Valeur actuelle (€)"] / positions_value * 100.0
+    else:
+        frame["Poids réel (%)"] = 0.0
+
+    frame["Écart cible (%)"] = (
+        frame["Poids réel (%)"] - frame["Allocation cible (%)"]
+    )
+
+    weights = frame["Valeur actuelle (€)"]
+    valid_ytd = frame["Performance YTD (%)"].fillna(0.0)
+    portfolio_ytd = (
+        float((valid_ytd * weights).sum() / weights.sum())
+        if weights.sum() > 0
+        else 0.0
+    )
+
+    latest_dates = pd.to_datetime(frame["Date du cours"], errors="coerce").dropna()
+    latest_timestamp = latest_dates.max() if not latest_dates.empty else pd.NaT
+
+    summary = {
+        "capital_reference": float(capital_reference),
+        "invested": invested,
+        "positions_value": positions_value,
+        "cash": cash,
+        "total_value": total_value,
+        "gain": gain,
+        "performance": performance,
+        "ytd": portfolio_ytd,
+        "active_lines": float((frame["Quantité"] > 0).sum()),
+        "latest_timestamp": latest_timestamp,
+    }
+    return frame, summary
+
+
+def pocket_allocation(frame: pd.DataFrame) -> pd.DataFrame:
+    grouped = frame.groupby("Poche", as_index=False)["Valeur actuelle (€)"].sum()
+    total = grouped["Valeur actuelle (€)"].sum()
+    grouped["Poids (%)"] = (
+        grouped["Valeur actuelle (€)"] / total * 100.0 if total else 0.0
+    )
+    return grouped
+
+
+def sector_allocation(frame: pd.DataFrame) -> pd.DataFrame:
+    grouped = frame.groupby("Secteur", as_index=False)["Valeur actuelle (€)"].sum()
+    total = grouped["Valeur actuelle (€)"].sum()
+    grouped["Poids (%)"] = (
+        grouped["Valeur actuelle (€)"] / total * 100.0 if total else 0.0
+    )
+    return grouped.sort_values("Poids (%)", ascending=False)
+
+
+def exposure_allocation(frame: pd.DataFrame) -> pd.DataFrame:
+    total = frame["Valeur actuelle (€)"].sum()
+    rows = []
+    for label, column in [
+        ("EUR", "Expo EUR"),
+        ("USD", "Expo USD"),
+        ("Autres", "Expo Autres"),
+    ]:
+        amount = float(
+            (frame["Valeur actuelle (€)"] * frame[column] / 100.0).sum()
+        )
+        rows.append(
+            {
+                "Exposition": label,
+                "Valeur (€)": amount,
+                "Poids (%)": amount / total * 100.0 if total else 0.0,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def performance_curve(
+    price_matrix: pd.DataFrame,
+    positions: pd.DataFrame,
+    cash: float,
+    benchmark_ticker: str = "DCAM.PA",
+    days: int = 365,
+) -> pd.DataFrame:
+    if price_matrix.empty:
+        return pd.DataFrame(columns=["Date", "Série", "Performance (%)"])
+
+    quantities = clean_positions(positions).set_index("Ticker")["Quantité"]
+    common = [ticker for ticker in quantities.index if ticker in price_matrix.columns]
+    if not common:
+        return pd.DataFrame(columns=["Date", "Série", "Performance (%)"])
+
+    start_date = pd.Timestamp.today().normalize() - pd.Timedelta(days=days)
+    prices = price_matrix.loc[price_matrix.index >= start_date, common].ffill().dropna(how="all")
+    if prices.empty:
+        return pd.DataFrame(columns=["Date", "Série", "Performance (%)"])
+
+    portfolio_value = prices.mul(quantities.reindex(common).fillna(0.0), axis=1).sum(axis=1)
+    portfolio_value = portfolio_value + float(cash)
+    if portfolio_value.iloc[0] == 0:
+        return pd.DataFrame(columns=["Date", "Série", "Performance (%)"])
+
+    portfolio_perf = (portfolio_value / portfolio_value.iloc[0] - 1.0) * 100.0
+    output = pd.DataFrame(
+        {
+            "Date": portfolio_perf.index,
+            "Série": "Portefeuille",
+            "Performance (%)": portfolio_perf.values,
+        }
+    )
+
+    if benchmark_ticker in price_matrix.columns:
+        benchmark = price_matrix.loc[
+            price_matrix.index >= start_date, benchmark_ticker
+        ].dropna()
+        if not benchmark.empty and benchmark.iloc[0] != 0:
+            benchmark_perf = (benchmark / benchmark.iloc[0] - 1.0) * 100.0
+            benchmark_frame = pd.DataFrame(
+                {
+                    "Date": benchmark_perf.index,
+                    "Série": "MSCI World",
+                    "Performance (%)": benchmark_perf.values,
+                }
+            )
+            output = pd.concat([output, benchmark_frame], ignore_index=True)
+
+    return output
+
+
+def recommend_orders(
+    frame: pd.DataFrame,
+    contribution: float,
+    total_value_after_contribution: float,
+    max_orders: int = 3,
+) -> pd.DataFrame:
+    if contribution <= 0:
+        return pd.DataFrame()
+
+    work = frame.copy()
+    work["Cible après versement (€)"] = (
+        total_value_after_contribution * work["Allocation cible (%)"] / 100.0
+    )
+    work["Manque cible (€)"] = (
+        work["Cible après versement (€)"] - work["Valeur actuelle (€)"]
+    ).clip(lower=0.0)
+    work["Éligible"] = (
+        (work["Cours (€)"] > 0)
+        & (work["Distance MM200 (%)"].fillna(-999) >= 0)
+    )
+    work = work[work["Éligible"] & (work["Manque cible (€)"] > 0)].copy()
+    if work.empty:
+        return pd.DataFrame()
+
+    work["Priorité"] = work["Manque cible (€)"] * (
+        0.50 + work["Score Alpha Zen"].fillna(0.0) / 100.0
+    )
+    work = work.nlargest(max_orders, "Priorité")
+    priority_total = work["Priorité"].sum()
+    work["Budget théorique (€)"] = (
+        contribution * work["Priorité"] / priority_total
+        if priority_total > 0
+        else contribution / len(work)
+    )
+    work["Quantité proposée"] = np.floor(
+        work["Budget théorique (€)"] / work["Cours (€)"]
+    ).astype(int)
+    work["Montant proposé (€)"] = (
+        work["Quantité proposée"] * work["Cours (€)"]
+    )
+    work = work[work["Quantité proposée"] > 0]
+    return work[
+        [
+            "Actif",
+            "Ticker",
+            "Signal",
+            "Score Alpha Zen",
+            "Cours (€)",
+            "Quantité proposée",
+            "Montant proposé (€)",
+        ]
+    ].sort_values("Montant proposé (€)", ascending=False)
+
+
+def load_transactions(path: str | Path = "data/transactions.csv") -> pd.DataFrame:
+    file_path = Path(path)
+    columns = ["Date", "Type", "Actif", "Quantité", "Montant (€)"]
+    if not file_path.exists() or file_path.stat().st_size == 0:
+        return pd.DataFrame(columns=columns)
+    try:
+        data = pd.read_csv(file_path, sep=None, engine="python")
+        for column in columns:
+            if column not in data.columns:
+                data[column] = np.nan
+        data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
+        return data[columns].sort_values("Date", ascending=False)
+    except Exception:
+        return pd.DataFrame(columns=columns)
 
