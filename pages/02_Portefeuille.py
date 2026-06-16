@@ -88,7 +88,7 @@ UNIVERSE = pd.DataFrame(
         {
             "Actif": "STMicroelectronics",
             "ISIN": "NL0000226223",
-            "Ticker": "STM.PA",
+            "Ticker": "STMPA.PA",
             "Poche": "Satellite",
             "Allocation cible (%)": 5.0,
         },
