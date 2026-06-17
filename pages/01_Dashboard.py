@@ -9,6 +9,13 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from services.auth import require_authentication, show_logout_button
+from services.supabase_service import (
+    cloud_status,
+    load_cloud_state_into_session,
+)
+from services.trading_service import initialize_trading_state
+
 from services.portfolio_engine import (
     UNIVERSE,
     build_default_positions,
@@ -22,7 +29,7 @@ from services.portfolio_engine import (
     recommend_orders,
     sector_allocation,
 )
-from services.auth import require_authentication, show_logout_button
+
 
 st.set_page_config(
     page_title="Alpha Zen Pro — Dashboard",
@@ -30,6 +37,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+require_authentication()
+show_logout_button()
+load_cloud_state_into_session()
 
 
 def load_css() -> None:
@@ -223,14 +234,24 @@ with st.sidebar:
     capital_reference = st.number_input(
         "Capital de référence",
         min_value=0.0,
-        value=10_000.0,
+        value=float(
+            st.session_state.get(
+                "cloud_capital_reference",
+                10_000.0,
+            )
+        ),
         step=500.0,
         format="%.2f",
     )
     monthly_contribution = st.number_input(
         "Versement mensuel",
         min_value=0.0,
-        value=1_000.0,
+        value=float(
+            st.session_state.get(
+                "cloud_monthly_contribution",
+                1_000.0,
+            )
+        ),
         step=100.0,
         format="%.2f",
     )
@@ -239,6 +260,14 @@ with st.sidebar:
         cached_market_bundle.clear()
         cached_market_overview.clear()
         st.rerun()
+
+    sync = cloud_status()
+    if sync["configured"] and not sync["error"]:
+        st.success("☁️ Supabase connecté")
+    elif sync["error"]:
+        st.warning("☁️ Synchronisation en erreur")
+    else:
+        st.info("☁️ Supabase non configuré")
 
     st.markdown('<div class="az-panel-title">Marchés</div>', unsafe_allow_html=True)
     overview = cached_market_overview()
@@ -274,16 +303,15 @@ with st.spinner("Analyse des cours, tendances et allocations…"):
         tuple(UNIVERSE["Ticker"].tolist())
     )
 
-if (
-    "virtual_positions" not in st.session_state
-    or st.session_state.virtual_positions is None
-    or st.session_state.virtual_positions.empty
-):
-    st.session_state.virtual_positions = build_default_positions(
-        UNIVERSE,
-        market_data,
-        capital_reference,
-    )
+initialize_trading_state(
+    UNIVERSE,
+    market_data,
+    capital_reference,
+    monthly_contribution,
+)
+
+st.session_state["capital_reference"] = capital_reference
+st.session_state["monthly_contribution"] = monthly_contribution
 
 positions = st.session_state.virtual_positions.copy()
 frame, summary = calculate_portfolio(
@@ -638,7 +666,10 @@ with bottom1:
             '<div class="az-panel-title">DERNIÈRES TRANSACTIONS</div>',
             unsafe_allow_html=True,
         )
-        transactions = load_transactions().head(5)
+        transactions = st.session_state.get(
+            "virtual_transactions",
+            load_transactions(),
+        ).head(5)
         if transactions.empty:
             st.markdown(
                 """
