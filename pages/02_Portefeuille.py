@@ -4,6 +4,16 @@ import streamlit as st
 
 from services.auth import require_authentication, show_logout_button
 from services.portfolio_engine import UNIVERSE, build_default_positions
+from services.supabase_service import (
+    cloud_status,
+    load_cloud_state_into_session,
+    supabase_is_configured,
+)
+from services.trading_service import (
+    initialize_trading_state,
+    reset_trading_state,
+    save_current_state_to_cloud,
+)
 from services.yahoo_services import get_market_snapshot, mm200_signal
 
 
@@ -15,12 +25,33 @@ st.set_page_config(
 
 require_authentication()
 show_logout_button()
+load_cloud_state_into_session()
 
 st.title("💼 Portefeuille Alpha Zen")
 st.caption(
     "Cours automatiques, quantités, PRU, liquidités "
     "et contrôle de l’allocation cible."
 )
+
+
+status = cloud_status()
+
+if status["configured"]:
+    if status["error"]:
+        st.warning(
+            "☁️ Supabase configuré, mais la dernière synchronisation "
+            f"a échoué : {status['error']}"
+        )
+    else:
+        st.success(
+            "☁️ Sauvegarde Supabase active — "
+            f"profil : {status['profile_id']}"
+        )
+else:
+    st.info(
+        "☁️ Supabase n'est pas encore configuré. "
+        "La page fonctionne temporairement avec la mémoire Streamlit."
+    )
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -42,7 +73,12 @@ with settings_col:
     capital_reference = st.number_input(
         "Capital virtuel à répartir",
         min_value=0.0,
-        value=10_000.0,
+        value=float(
+            st.session_state.get(
+                "cloud_capital_reference",
+                10_000.0,
+            )
+        ),
         step=500.0,
         format="%.2f",
         key="portfolio_capital_reference",
@@ -76,51 +112,39 @@ if missing:
         + ". Les autres lignes restent calculées."
     )
 
+initialize_trading_state(
+    UNIVERSE,
+    market_data,
+    capital_reference,
+    float(
+        st.session_state.get(
+            "cloud_monthly_contribution",
+            1000.0,
+        )
+    ),
+)
+
 initial_positions = build_default_positions(
     UNIVERSE,
     market_data,
     capital_reference,
 )
 
-if (
-    "virtual_positions" not in st.session_state
-    or st.session_state.virtual_positions is None
-    or st.session_state.virtual_positions.empty
-):
-    st.session_state.virtual_positions = initial_positions.copy()
-
-if "virtual_cash" not in st.session_state:
-    initial_invested = float(
-        (
-            st.session_state.virtual_positions["Quantité"]
-            * st.session_state.virtual_positions["PRU (€)"]
-        ).sum()
-    )
-    st.session_state.virtual_cash = max(
-        capital_reference - initial_invested,
-        0.0,
-    )
-
-if "virtual_transactions" not in st.session_state:
-    st.session_state.virtual_transactions = pd.DataFrame()
-
 if st.button(
     "🎯 Recalculer les quantités selon l’allocation cible"
 ):
-    st.session_state.virtual_positions = initial_positions.copy()
-    invested = float(
-        (
-            initial_positions["Quantité"]
-            * initial_positions["PRU (€)"]
-        ).sum()
+    reset_trading_state(
+        UNIVERSE,
+        market_data,
+        capital_reference,
+        float(
+            st.session_state.get(
+                "monthly_contribution",
+                1000.0,
+            )
+        ),
     )
-    st.session_state.virtual_cash = max(
-        capital_reference - invested,
-        0.0,
-    )
-    st.session_state.virtual_transactions = pd.DataFrame()
     st.rerun()
-
 
 positions_input = UNIVERSE.merge(
     st.session_state.virtual_positions,
@@ -182,9 +206,30 @@ edited_positions = st.data_editor(
     key="positions_editor",
 )
 
-st.session_state.virtual_positions = edited_positions[
+previous_positions = (
+    st.session_state.virtual_positions[
+        ["Ticker", "Quantité", "PRU (€)"]
+    ]
+    .reset_index(drop=True)
+    .copy()
+)
+
+new_positions = edited_positions[
     ["Ticker", "Quantité", "PRU (€)"]
-].copy()
+].reset_index(drop=True)
+
+st.session_state.virtual_positions = new_positions.copy()
+
+if not new_positions.equals(previous_positions):
+    save_current_state_to_cloud(
+        capital_reference,
+        float(
+            st.session_state.get(
+                "monthly_contribution",
+                1000.0,
+            )
+        ),
+    )
 
 
 df = (
@@ -442,6 +487,7 @@ st.download_button(
 )
 
 st.caption(
-    "Les prix peuvent être retardés. "
-    "Les opérations de la page Acheter / Vendre sont uniquement virtuelles."
+    "Les prix peuvent être retardés. Les opérations sont virtuelles. "
+    "Lorsque Supabase est configuré, les positions et les liquidités "
+    "sont sauvegardées automatiquement."
 )
