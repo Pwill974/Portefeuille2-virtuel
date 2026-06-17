@@ -6,6 +6,8 @@ import streamlit as st
 
 from services.yahoo_services import get_market_snapshot, mm200_signal
 
+require_authentication()
+show_logout_button()
 
 st.title("💼 Portefeuille Alpha Zen")
 st.caption(
