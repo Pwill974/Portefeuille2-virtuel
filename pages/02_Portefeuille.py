@@ -1,127 +1,25 @@
-import math
-
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from services.auth import (
-    require_authentication,
-    show_logout_button,
+from services.auth import require_authentication, show_logout_button
+from services.portfolio_engine import UNIVERSE, build_default_positions
+from services.yahoo_services import get_market_snapshot, mm200_signal
+
+
+st.set_page_config(
+    page_title="Alpha Zen Pro — Portefeuille",
+    page_icon="💼",
+    layout="wide",
 )
 
-from services.yahoo_services import (
-    get_market_snapshot,
-    mm200_signal,
-)
-
-
-# Vérification du mot de passe avant d’afficher la page
 require_authentication()
 show_logout_button()
 
-
 st.title("💼 Portefeuille Alpha Zen")
-
 st.caption(
-    "Cours automatiques, portefeuille virtuel "
+    "Cours automatiques, quantités, PRU, liquidités "
     "et contrôle de l’allocation cible."
-)
-
-
-UNIVERSE = pd.DataFrame(
-    [
-        {
-            "Actif": "Amundi PEA MSCI World",
-            "ISIN": "FR001400U5Q4",
-            "Ticker": "DCAM.PA",
-            "Poche": "Socle Zen",
-            "Allocation cible (%)": 20.0,
-        },
-        {
-            "Actif": "Amundi PEA S&P 500",
-            "ISIN": "FR0011871128",
-            "Ticker": "PSP5.PA",
-            "Poche": "Socle Zen",
-            "Allocation cible (%)": 15.0,
-        },
-        {
-            "Actif": "Amundi PEA Nasdaq-100",
-            "ISIN": "FR0011871110",
-            "Ticker": "PUST.PA",
-            "Poche": "Socle Zen",
-            "Allocation cible (%)": 10.0,
-        },
-        {
-            "Actif": "Amundi PEA MSCI Europe",
-            "ISIN": "FR0013412038",
-            "Ticker": "PCEU.PA",
-            "Poche": "Socle Zen",
-            "Allocation cible (%)": 5.0,
-        },
-        {
-            "Actif": "GUARD BNP Défense",
-            "ISIN": "LU3047998896",
-            "Ticker": "GUARD.PA",
-            "Poche": "Momentum",
-            "Allocation cible (%)": 10.0,
-        },
-        {
-            "Actif": "Schneider Electric",
-            "ISIN": "FR0000121972",
-            "Ticker": "SU.PA",
-            "Poche": "Momentum",
-            "Allocation cible (%)": 5.0,
-        },
-        {
-            "Actif": "Air Liquide",
-            "ISIN": "FR0000120073",
-            "Ticker": "AI.PA",
-            "Poche": "Momentum",
-            "Allocation cible (%)": 3.0,
-        },
-        {
-            "Actif": "TotalEnergies",
-            "ISIN": "FR0000120271",
-            "Ticker": "TTE.PA",
-            "Poche": "Momentum",
-            "Allocation cible (%)": 2.0,
-        },
-        {
-            "Actif": "Dassault Aviation",
-            "ISIN": "FR0014004L86",
-            "Ticker": "AM.PA",
-            "Poche": "Momentum",
-            "Allocation cible (%)": 5.0,
-        },
-        {
-            "Actif": "Thales",
-            "ISIN": "FR0000121329",
-            "Ticker": "HO.PA",
-            "Poche": "Momentum",
-            "Allocation cible (%)": 5.0,
-        },
-        {
-            "Actif": "STMicroelectronics",
-            "ISIN": "NL0000226223",
-            "Ticker": "STMPA.PA",
-            "Poche": "Satellite",
-            "Allocation cible (%)": 5.0,
-        },
-        {
-            "Actif": "Sanofi",
-            "ISIN": "FR0000120578",
-            "Ticker": "SAN.PA",
-            "Poche": "Momentum",
-            "Allocation cible (%)": 5.0,
-        },
-        {
-            "Actif": "Amundi PEA Émergents",
-            "ISIN": "FR0013412020",
-            "Ticker": "PAEEM.PA",
-            "Poche": "Satellite",
-            "Allocation cible (%)": 10.0,
-        },
-    ]
 )
 
 
@@ -131,28 +29,11 @@ def load_market_data(tickers: tuple[str, ...]) -> pd.DataFrame:
 
 
 def euro(value: float) -> str:
-    return f"{value:,.2f} €".replace(",", " ").replace(".", ",")
-
-
-def build_target_positions(
-    universe: pd.DataFrame,
-    market: pd.DataFrame,
-    capital: float,
-) -> pd.DataFrame:
-    frame = universe.merge(market, on="Ticker", how="left")
-    frame["Montant cible (€)"] = (
-        capital * frame["Allocation cible (%)"] / 100.0
+    return (
+        f"{float(value):,.2f} €"
+        .replace(",", " ")
+        .replace(".", ",")
     )
-
-    def quantity_from_target(row: pd.Series) -> int:
-        price = row["Cours (€)"]
-        if pd.isna(price) or float(price) <= 0:
-            return 0
-        return max(math.floor(float(row["Montant cible (€)"]) / float(price)), 0)
-
-    frame["Quantité"] = frame.apply(quantity_from_target, axis=1)
-    frame["PRU (€)"] = frame["Cours (€)"]
-    return frame
 
 
 settings_col, refresh_col = st.columns([3, 1])
@@ -164,21 +45,28 @@ with settings_col:
         value=10_000.0,
         step=500.0,
         format="%.2f",
+        key="portfolio_capital_reference",
     )
 
 with refresh_col:
     st.write("")
     st.write("")
-    if st.button("🔄 Actualiser les cours", use_container_width=True):
+    if st.button(
+        "🔄 Actualiser les cours",
+        use_container_width=True,
+    ):
         load_market_data.clear()
         st.rerun()
 
 
 with st.spinner("Téléchargement des derniers cours disponibles…"):
-    market_data = load_market_data(tuple(UNIVERSE["Ticker"].tolist()))
+    market_data = load_market_data(
+        tuple(UNIVERSE["Ticker"].tolist())
+    )
 
 missing = market_data.loc[
-    market_data["Statut données"] != "OK", "Ticker"
+    market_data["Statut données"] != "OK",
+    "Ticker",
 ].tolist()
 
 if missing:
@@ -188,21 +76,49 @@ if missing:
         + ". Les autres lignes restent calculées."
     )
 
-initial_positions = build_target_positions(
+initial_positions = build_default_positions(
     UNIVERSE,
     market_data,
     capital_reference,
 )
 
-if "virtual_positions" not in st.session_state:
-    st.session_state.virtual_positions = initial_positions[
-        ["Ticker", "Quantité", "PRU (€)"]
-    ].copy()
+if (
+    "virtual_positions" not in st.session_state
+    or st.session_state.virtual_positions is None
+    or st.session_state.virtual_positions.empty
+):
+    st.session_state.virtual_positions = initial_positions.copy()
 
-if st.button("🎯 Recalculer les quantités selon l’allocation cible"):
-    st.session_state.virtual_positions = initial_positions[
-        ["Ticker", "Quantité", "PRU (€)"]
-    ].copy()
+if "virtual_cash" not in st.session_state:
+    initial_invested = float(
+        (
+            st.session_state.virtual_positions["Quantité"]
+            * st.session_state.virtual_positions["PRU (€)"]
+        ).sum()
+    )
+    st.session_state.virtual_cash = max(
+        capital_reference - initial_invested,
+        0.0,
+    )
+
+if "virtual_transactions" not in st.session_state:
+    st.session_state.virtual_transactions = pd.DataFrame()
+
+if st.button(
+    "🎯 Recalculer les quantités selon l’allocation cible"
+):
+    st.session_state.virtual_positions = initial_positions.copy()
+    invested = float(
+        (
+            initial_positions["Quantité"]
+            * initial_positions["PRU (€)"]
+        ).sum()
+    )
+    st.session_state.virtual_cash = max(
+        capital_reference - invested,
+        0.0,
+    )
+    st.session_state.virtual_transactions = pd.DataFrame()
     st.rerun()
 
 
@@ -214,7 +130,8 @@ positions_input = UNIVERSE.merge(
 
 st.subheader("Quantités du portefeuille virtuel")
 st.caption(
-    "Les cours sont automatiques. Tu peux modifier seulement la quantité et le PRU."
+    "Les cours sont automatiques. Tu peux modifier la quantité et le PRU, "
+    "ou utiliser la page Acheter / Vendre pour enregistrer une opération."
 )
 
 edited_positions = st.data_editor(
@@ -232,9 +149,18 @@ edited_positions = st.data_editor(
     use_container_width=True,
     num_rows="fixed",
     column_config={
-        "Actif": st.column_config.TextColumn("Actif", disabled=True),
-        "Ticker": st.column_config.TextColumn("Ticker", disabled=True),
-        "Poche": st.column_config.TextColumn("Poche", disabled=True),
+        "Actif": st.column_config.TextColumn(
+            "Actif",
+            disabled=True,
+        ),
+        "Ticker": st.column_config.TextColumn(
+            "Ticker",
+            disabled=True,
+        ),
+        "Poche": st.column_config.TextColumn(
+            "Poche",
+            disabled=True,
+        ),
         "Allocation cible (%)": st.column_config.NumberColumn(
             "Cible",
             format="%.1f %%",
@@ -274,13 +200,26 @@ df = (
     )
 )
 
-df["Quantité"] = pd.to_numeric(df["Quantité"], errors="coerce").fillna(0.0)
-df["PRU (€)"] = pd.to_numeric(df["PRU (€)"], errors="coerce").fillna(0.0)
-df["Cours (€)"] = pd.to_numeric(df["Cours (€)"], errors="coerce")
+df["Quantité"] = pd.to_numeric(
+    df["Quantité"],
+    errors="coerce",
+).fillna(0.0)
+df["PRU (€)"] = pd.to_numeric(
+    df["PRU (€)"],
+    errors="coerce",
+).fillna(0.0)
+df["Cours (€)"] = pd.to_numeric(
+    df["Cours (€)"],
+    errors="coerce",
+).fillna(0.0)
 
 df["Investi (€)"] = df["Quantité"] * df["PRU (€)"]
-df["Valeur actuelle (€)"] = df["Quantité"] * df["Cours (€)"].fillna(0.0)
-df["Plus-value (€)"] = df["Valeur actuelle (€)"] - df["Investi (€)"]
+df["Valeur actuelle (€)"] = (
+    df["Quantité"] * df["Cours (€)"]
+)
+df["Plus-value (€)"] = (
+    df["Valeur actuelle (€)"] - df["Investi (€)"]
+)
 df["Plus-value (%)"] = (
     df["Plus-value (€)"]
     .div(df["Investi (€)"].replace(0, pd.NA))
@@ -289,56 +228,74 @@ df["Plus-value (%)"] = (
 )
 
 df["Signal MM200"] = df.apply(
-    lambda row: mm200_signal(row["Cours (€)"], row["MM200 (€)"]),
+    lambda row: mm200_signal(
+        row["Cours (€)"],
+        row["MM200 (€)"],
+    ),
     axis=1,
 )
 
-valeur_positions = float(df["Valeur actuelle (€)"].sum())
-montant_investi = float(df["Investi (€)"].sum())
+valeur_positions = float(
+    df["Valeur actuelle (€)"].sum()
+)
+montant_investi = float(
+    df["Investi (€)"].sum()
+)
 plus_value = valeur_positions - montant_investi
-liquidites_virtuelles = max(capital_reference - montant_investi, 0.0)
-valeur_totale = valeur_positions + liquidites_virtuelles
+liquidites_virtuelles = float(
+    st.session_state.get("virtual_cash", 0.0)
+)
+valeur_totale = (
+    valeur_positions + liquidites_virtuelles
+)
 
 if valeur_positions > 0:
     df["Poids réel (%)"] = (
-        df["Valeur actuelle (€)"] / valeur_positions * 100.0
+        df["Valeur actuelle (€)"]
+        / valeur_positions
+        * 100.0
     )
 else:
     df["Poids réel (%)"] = 0.0
 
 df["Écart cible (%)"] = (
-    df["Poids réel (%)"] - df["Allocation cible (%)"]
+    df["Poids réel (%)"]
+    - df["Allocation cible (%)"]
 )
 
 kpi1, kpi2 = st.columns(2)
 kpi3, kpi4 = st.columns(2)
 
-with kpi1:
-    st.metric("Valeur totale", euro(valeur_totale))
-
-with kpi2:
-    st.metric("Valeur des positions", euro(valeur_positions))
-
-with kpi3:
-    st.metric(
-        "Plus-value",
-        euro(plus_value),
-        delta=(
-            f"{(plus_value / montant_investi * 100):+.2f} %"
-            if montant_investi > 0
-            else "0,00 %"
-        ),
-    )
-
-with kpi4:
-    st.metric("Liquidités virtuelles", euro(liquidites_virtuelles))
-
+kpi1.metric(
+    "Valeur totale",
+    euro(valeur_totale),
+)
+kpi2.metric(
+    "Valeur des positions",
+    euro(valeur_positions),
+)
+kpi3.metric(
+    "Plus-value latente",
+    euro(plus_value),
+    delta=(
+        f"{(plus_value / montant_investi * 100):+.2f} %"
+        if montant_investi > 0
+        else "0,00 %"
+    ),
+)
+kpi4.metric(
+    "Liquidités virtuelles",
+    euro(liquidites_virtuelles),
+)
 
 st.divider()
 st.subheader("Répartition réelle")
 
 poche_df = (
-    df.groupby("Poche", as_index=False)["Valeur actuelle (€)"]
+    df.groupby(
+        "Poche",
+        as_index=False,
+    )["Valeur actuelle (€)"]
     .sum()
 )
 
@@ -361,13 +318,24 @@ with graph1:
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         legend_title_text="",
-        margin=dict(l=10, r=10, t=20, b=10),
+        margin=dict(
+            l=10,
+            r=10,
+            t=20,
+            b=10,
+        ),
     )
-    st.plotly_chart(fig_poches, use_container_width=True)
+    st.plotly_chart(
+        fig_poches,
+        use_container_width=True,
+    )
 
 with graph2:
     fig_actifs = px.bar(
-        df.sort_values("Poids réel (%)", ascending=True),
+        df.sort_values(
+            "Poids réel (%)",
+            ascending=True,
+        ),
         x="Poids réel (%)",
         y="Actif",
         orientation="h",
@@ -384,10 +352,17 @@ with graph2:
         legend_title_text="",
         xaxis_title="Poids réel (%)",
         yaxis_title="",
-        margin=dict(l=10, r=10, t=20, b=10),
+        margin=dict(
+            l=10,
+            r=10,
+            t=20,
+            b=10,
+        ),
     )
-    st.plotly_chart(fig_actifs, use_container_width=True)
-
+    st.plotly_chart(
+        fig_actifs,
+        use_container_width=True,
+    )
 
 st.divider()
 st.subheader("Valeurs automatiques des actifs")
@@ -408,45 +383,65 @@ display_columns = [
     "Date du cours",
 ]
 
-display_df = df[display_columns].copy()
-
 st.dataframe(
-    display_df.style.format(
-        {
-            "Quantité": "{:,.4f}",
-            "PRU (€)": "{:,.2f} €",
-            "Cours (€)": "{:,.2f} €",
-            "Valeur actuelle (€)": "{:,.2f} €",
-            "Plus-value (€)": "{:+,.2f} €",
-            "Plus-value (%)": "{:+.2f} %",
-            "Poids réel (%)": "{:.2f} %",
-            "MM200 (€)": "{:,.2f} €",
-            "Momentum 6M (%)": "{:+.2f} %",
-            "Date du cours": lambda value: (
-                value.strftime("%d/%m/%Y")
-                if pd.notna(value)
-                else "—"
-            ),
-        }
-    ),
+    df[display_columns],
     hide_index=True,
     use_container_width=True,
+    column_config={
+        "Quantité": st.column_config.NumberColumn(
+            "Quantité",
+            format="%.4f",
+        ),
+        "PRU (€)": st.column_config.NumberColumn(
+            "PRU",
+            format="%.2f €",
+        ),
+        "Cours (€)": st.column_config.NumberColumn(
+            "Cours",
+            format="%.2f €",
+        ),
+        "Valeur actuelle (€)": st.column_config.NumberColumn(
+            "Valeur",
+            format="%.2f €",
+        ),
+        "Plus-value (€)": st.column_config.NumberColumn(
+            "Plus-value",
+            format="%+.2f €",
+        ),
+        "Plus-value (%)": st.column_config.NumberColumn(
+            "Performance",
+            format="%+.2f %%",
+        ),
+        "Poids réel (%)": st.column_config.NumberColumn(
+            "Poids",
+            format="%.2f %%",
+        ),
+        "MM200 (€)": st.column_config.NumberColumn(
+            "MM200",
+            format="%.2f €",
+        ),
+        "Momentum 6M (%)": st.column_config.NumberColumn(
+            "Momentum 6M",
+            format="%+.2f %%",
+        ),
+        "Date du cours": st.column_config.DatetimeColumn(
+            "Date du cours",
+            format="DD/MM/YYYY",
+        ),
+    },
 )
-
-
-csv_export = st.session_state.virtual_positions.to_csv(
-    index=False,
-    sep=";",
-).encode("utf-8-sig")
 
 st.download_button(
     "⬇️ Sauvegarder mes quantités et PRU",
-    data=csv_export,
+    data=st.session_state.virtual_positions.to_csv(
+        index=False,
+        sep=";",
+    ).encode("utf-8-sig"),
     file_name="positions_alpha_zen.csv",
     mime="text/csv",
 )
 
 st.caption(
-    "Les prix proviennent de Yahoo Finance via yfinance et peuvent être retardés. "
-    "Ils servent au suivi indicatif, pas à l’exécution d’ordres."
+    "Les prix peuvent être retardés. "
+    "Les opérations de la page Acheter / Vendre sont uniquement virtuelles."
 )
