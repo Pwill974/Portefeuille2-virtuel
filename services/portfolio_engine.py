@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import streamlit as st
 import yfinance as yf
 
 
@@ -472,7 +473,12 @@ def calculate_portfolio(
 
     invested = float(frame["Investi (€)"].sum())
     positions_value = float(frame["Valeur actuelle (€)"].sum())
-    cash = max(float(capital_reference) - invested, 0.0)
+    session_cash = st.session_state.get("virtual_cash")
+    cash = (
+        float(session_cash)
+        if session_cash is not None
+        else max(float(capital_reference) - invested, 0.0)
+    )
     total_value = positions_value + cash
     gain = positions_value - invested
     performance = gain / invested * 100.0 if invested else 0.0
@@ -671,4 +677,3 @@ def load_transactions(path: str | Path = "data/transactions.csv") -> pd.DataFram
         return data[columns].sort_values("Date", ascending=False)
     except Exception:
         return pd.DataFrame(columns=columns)
-
