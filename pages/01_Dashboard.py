@@ -684,16 +684,69 @@ with bottom1:
             st.caption("Ajoute data/transactions.csv pour afficher tes opérations.")
         else:
             rows = []
+
             for _, row in transactions.iterrows():
+                raw_date = row.get("Date")
+                parsed_date = pd.to_datetime(
+                    raw_date,
+                    errors="coerce",
+                    utc=True,
+                )
                 date_text = (
-                    pd.Timestamp(row["Date"]).strftime("%d/%m/%Y")
-                    if pd.notna(row["Date"])
+                    parsed_date.strftime("%d/%m/%Y")
+                    if pd.notna(parsed_date)
                     else "—"
                 )
-                rows.append(
-                    f"<tr><td>{date_text} · {escape(str(row['Type']))}</td>"
-                    f"<td>{escape(str(row['Actif']))} · {euro(row['Montant (€)'])}</td></tr>"
+
+                transaction_type = str(
+                    row.get("Type", "Opération")
                 )
+                asset_name = str(
+                    row.get("Actif", row.get("Ticker", "Actif"))
+                )
+
+                # Compatibilité avec les anciens CSV et les nouvelles
+                # transactions sauvegardées dans Supabase.
+                if "Montant net (€)" in transactions.columns:
+                    amount = pd.to_numeric(
+                        row.get("Montant net (€)"),
+                        errors="coerce",
+                    )
+                elif "Montant brut (€)" in transactions.columns:
+                    amount = pd.to_numeric(
+                        row.get("Montant brut (€)"),
+                        errors="coerce",
+                    )
+                elif "Montant (€)" in transactions.columns:
+                    amount = pd.to_numeric(
+                        row.get("Montant (€)"),
+                        errors="coerce",
+                    )
+                else:
+                    amount = pd.NA
+
+                amount_text = (
+                    euro(float(amount), signed=True)
+                    if pd.notna(amount)
+                    else "—"
+                )
+
+                amount_color = (
+                    "#00d7ad"
+                    if pd.notna(amount) and float(amount) >= 0
+                    else "#ff4d5f"
+                )
+
+                rows.append(
+                    f"<tr>"
+                    f"<td>{date_text} · "
+                    f"{escape(transaction_type)}</td>"
+                    f"<td>{escape(asset_name)} · "
+                    f"<span style='color:{amount_color}'>"
+                    f"{escape(amount_text)}</span></td>"
+                    f"</tr>"
+                )
+
             st.markdown(
                 f'<table class="az-mini-table">{"".join(rows)}</table>',
                 unsafe_allow_html=True,
