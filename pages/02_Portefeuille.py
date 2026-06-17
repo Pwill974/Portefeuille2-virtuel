@@ -4,14 +4,27 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from services.yahoo_services import get_market_snapshot, mm200_signal
+from services.auth import (
+    require_authentication,
+    show_logout_button,
+)
 
+from services.yahoo_services import (
+    get_market_snapshot,
+    mm200_signal,
+)
+
+
+# Vérification du mot de passe avant d’afficher la page
 require_authentication()
 show_logout_button()
 
+
 st.title("💼 Portefeuille Alpha Zen")
+
 st.caption(
-    "Cours automatiques, portefeuille virtuel et contrôle de l’allocation cible."
+    "Cours automatiques, portefeuille virtuel "
+    "et contrôle de l’allocation cible."
 )
 
 
