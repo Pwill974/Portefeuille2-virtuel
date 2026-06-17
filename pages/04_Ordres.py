@@ -5,6 +5,10 @@ import streamlit as st
 
 from services.auth import require_authentication, show_logout_button
 from services.portfolio_engine import UNIVERSE, fetch_market_bundle
+from services.supabase_service import (
+    cloud_status,
+    load_cloud_state_into_session,
+)
 from services.trading_service import (
     current_position,
     execute_trade,
@@ -22,6 +26,7 @@ st.set_page_config(
 
 require_authentication()
 show_logout_button()
+load_cloud_state_into_session()
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -44,10 +49,23 @@ st.caption(
     "Aucun ordre réel n’est envoyé à Fortuneo."
 )
 
+status = cloud_status()
+if status["configured"] and not status["error"]:
+    st.success("☁️ Sauvegarde automatique Supabase active")
+elif status["error"]:
+    st.warning(f"☁️ Erreur de synchronisation : {status['error']}")
+else:
+    st.info("☁️ Mode mémoire locale : configure Supabase pour conserver les opérations.")
+
 capital_reference = st.number_input(
     "Capital virtuel de référence",
     min_value=0.0,
-    value=10_000.0,
+    value=float(
+        st.session_state.get(
+            "cloud_capital_reference",
+            10_000.0,
+        )
+    ),
     step=500.0,
     format="%.2f",
     key="trading_capital_reference",
@@ -62,6 +80,12 @@ initialize_trading_state(
     UNIVERSE,
     market_data,
     capital_reference,
+    float(
+        st.session_state.get(
+            "cloud_monthly_contribution",
+            1000.0,
+        )
+    ),
 )
 
 positions = st.session_state.virtual_positions.copy()
@@ -340,12 +364,18 @@ if st.button(
         UNIVERSE,
         market_data,
         capital_reference,
+        float(
+            st.session_state.get(
+                "monthly_contribution",
+                1000.0,
+            )
+        ),
     )
     st.success("Portefeuille virtuel réinitialisé.")
     st.rerun()
 
 st.caption(
     "Les achats et ventes sont uniquement simulés. "
-    "Les données restent en mémoire pendant la session Streamlit ; "
-    "utilise les exports CSV pour les sauvegarder."
+    "Avec Supabase configuré, positions, liquidités et transactions "
+    "sont conservées après un redémarrage de Streamlit."
 )
