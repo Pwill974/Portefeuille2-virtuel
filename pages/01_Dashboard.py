@@ -22,7 +22,7 @@ from services.portfolio_engine import (
     recommend_orders,
     sector_allocation,
 )
-
+from services.auth import require_authentication, show_logout_button
 
 st.set_page_config(
     page_title="Alpha Zen Pro — Dashboard",
