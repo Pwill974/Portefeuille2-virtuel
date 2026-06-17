@@ -7,3 +7,4 @@ sqlalchemy
 openpyxl
 ta
 scipy
+supabase>=2.0,<3.0
