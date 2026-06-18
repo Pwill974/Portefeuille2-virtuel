@@ -5,6 +5,17 @@ import streamlit as st
 
 from services.auth import require_authentication, show_logout_button
 from services.portfolio_engine import UNIVERSE, fetch_market_bundle
+from services.fortuneo_fees import (
+    FORTUNEO_PLANS,
+    calculate_fortuneo_fee,
+    plan_summary,
+)
+from services.performance_history_service import (
+    build_snapshot,
+    load_brokerage_plan,
+    save_brokerage_plan,
+    save_daily_snapshot,
+)
 from services.supabase_service import (
     cloud_status,
     load_cloud_state_into_session,
@@ -100,6 +111,25 @@ k3.metric("Valeur totale", euro(total_value))
 
 st.divider()
 
+current_plan = load_brokerage_plan()
+selected_plan = st.selectbox(
+    "Tarif Fortuneo",
+    FORTUNEO_PLANS,
+    index=FORTUNEO_PLANS.index(current_plan)
+    if current_plan in FORTUNEO_PLANS
+    else 0,
+)
+
+if selected_plan != current_plan:
+    save_brokerage_plan(selected_plan)
+
+st.caption(plan_summary(selected_plan))
+
+automatic_fees = st.toggle(
+    "Calcul automatique des frais Fortuneo",
+    value=True,
+)
+
 asset_options = UNIVERSE["Actif"].tolist()
 selected_asset = st.selectbox(
     "Actif",
@@ -151,15 +181,29 @@ with st.form("virtual_trade_form", clear_on_submit=False):
         format="%.4f",
     )
 
-    fees = st.number_input(
-        "Frais estimés",
-        min_value=0.0,
-        value=0.0,
-        step=0.10,
-        format="%.2f",
-    )
-
     gross = quantity * execution_price
+
+    if automatic_fees:
+        fee_quote = calculate_fortuneo_fee(
+            selected_plan,
+            gross,
+            st.session_state.virtual_transactions,
+        )
+        fees = fee_quote.fee
+        st.info(
+            f"Frais Fortuneo estimés : {euro(fees)} "
+            f"({fee_quote.fee_rate_percent:.3f} %)\n\n"
+            f"{fee_quote.explanation}"
+        )
+    else:
+        fees = st.number_input(
+            "Frais saisis manuellement",
+            min_value=0.0,
+            value=0.0,
+            step=0.10,
+            format="%.2f",
+        )
+
     estimated = (
         gross + fees
         if action == "Achat"
@@ -167,7 +211,7 @@ with st.form("virtual_trade_form", clear_on_submit=False):
     )
 
     st.info(
-        f"Montant estimé : {euro(estimated)}"
+        f"Montant total estimé : {euro(estimated)}"
     )
 
     submitted = st.form_submit_button(
@@ -185,6 +229,7 @@ if submitted:
             quantity=quantity,
             price=execution_price,
             fees=fees,
+            brokerage_plan=selected_plan,
         )
 
         if action == "Achat":
@@ -200,6 +245,28 @@ if submitted:
                 f"{euro(transaction['Plus-value réalisée (€)'])}."
             )
 
+        updated_positions = st.session_state.virtual_positions.copy()
+        updated_value = market_value(
+            updated_positions,
+            market_data,
+        )
+        updated_cash = float(st.session_state.virtual_cash)
+        invested_cost = float(
+            (
+                updated_positions["Quantité"]
+                * updated_positions["PRU (€)"]
+            ).sum()
+        )
+        snapshot = build_snapshot(
+            total_value=updated_value + updated_cash,
+            positions_value=updated_value,
+            cash=updated_cash,
+            invested=invested_cost,
+            capital_reference=capital_reference,
+            unrealized_gain=updated_value - invested_cost,
+            transactions=st.session_state.virtual_transactions,
+        )
+        save_daily_snapshot(snapshot)
         st.rerun()
 
     except ValueError as error:
