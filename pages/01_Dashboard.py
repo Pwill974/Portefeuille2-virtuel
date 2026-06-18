@@ -9,6 +9,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from services.performance_history_service import (
+    build_snapshot,
+    cumulative_fees,
+    fetch_performance_history,
+    save_daily_snapshot,
+)
 from services.auth import require_authentication, show_logout_button
 from services.supabase_service import (
     cloud_status,
@@ -320,6 +326,29 @@ frame, summary = calculate_portfolio(
     positions,
     capital_reference,
 )
+
+all_transactions = st.session_state.get(
+    "virtual_transactions",
+    pd.DataFrame(),
+)
+
+current_snapshot = build_snapshot(
+    total_value=summary["total_value"],
+    positions_value=summary["positions_value"],
+    cash=summary["cash"],
+    invested=summary["invested"],
+    capital_reference=capital_reference,
+    unrealized_gain=summary["gain"],
+    transactions=all_transactions,
+)
+
+try:
+    save_daily_snapshot(current_snapshot)
+except Exception:
+    pass
+
+real_history = fetch_performance_history()
+total_fees = cumulative_fees(all_transactions)
 # Réinjecte la version nettoyée afin que la page Portefeuille retrouve les mêmes lignes.
 st.session_state.virtual_positions = frame[["Ticker", "Quantité", "PRU (€)"]].copy()
 
@@ -558,12 +587,24 @@ with middle1:
             '<div class="az-panel-title">PERFORMANCE DU PORTEFEUILLE</div>',
             unsafe_allow_html=True,
         )
-        curve = performance_curve(
-            price_matrix,
-            positions,
-            summary["cash"],
-            days=365,
-        )
+        if real_history is not None and len(real_history) >= 2:
+            curve = real_history[
+                ["Date", "Performance nette (%)"]
+            ].copy()
+            curve["Série"] = "Performance réelle nette"
+            curve = curve.rename(
+                columns={
+                    "Performance nette (%)": "Performance (%)"
+                }
+            )
+        else:
+            curve = performance_curve(
+                price_matrix,
+                positions,
+                summary["cash"],
+                days=365,
+            )
+
         if curve.empty:
             st.info("Historique insuffisant pour afficher la performance.")
         else:
@@ -573,6 +614,7 @@ with middle1:
                 y="Performance (%)",
                 color="Série",
                 color_discrete_map={
+                    "Performance réelle nette": "#00d7ad",
                     "Portefeuille": "#00d7ad",
                     "MSCI World": "#3b82f6",
                 },
@@ -663,7 +705,7 @@ bottom1, bottom2, bottom3 = st.columns(3)
 with bottom1:
     with st.container(border=True):
         st.markdown(
-            '<div class="az-panel-title">DERNIÈRES TRANSACTIONS</div>',
+            '<div class="az-panel-title">DERNIÈRES TRANSACTIONS</div><div class="az-panel-subtitle">Frais Fortuneo cumulés : {euro(total_fees)}</div>',
             unsafe_allow_html=True,
         )
         transactions = st.session_state.get(
