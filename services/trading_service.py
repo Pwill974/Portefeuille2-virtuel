@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from services.portfolio_engine import build_default_positions
+from services.fortuneo_fees import calculate_fortuneo_fee
 from services.supabase_service import (
     LOCAL_TRANSACTION_COLUMNS,
     SupabaseSyncError,
@@ -236,13 +237,14 @@ def execute_trade(
     ticker: str,
     quantity: float,
     price: float,
-    fees: float = 0.0,
+    fees: float | None = None,
+    brokerage_plan: str = "Starter",
 ) -> dict[str, Any]:
     """Exécute une opération virtuelle puis la sauvegarde."""
     action = trade_type.strip().upper()
     quantity = float(quantity)
     price = float(price)
-    fees = float(fees)
+    fees = None if fees is None else float(fees)
 
     if action not in {"ACHAT", "VENTE"}:
         raise ValueError("Le type doit être ACHAT ou VENTE.")
@@ -252,7 +254,7 @@ def execute_trade(
         )
     if price <= 0:
         raise ValueError("Le prix doit être supérieur à zéro.")
-    if fees < 0:
+    if fees is not None and fees < 0:
         raise ValueError(
             "Les frais ne peuvent pas être négatifs."
         )
@@ -286,6 +288,15 @@ def execute_trade(
         ] = [ticker, 0.0, 0.0]
 
     gross_amount = quantity * price
+    if fees is None:
+        quote = calculate_fortuneo_fee(
+            brokerage_plan,
+            gross_amount,
+            st.session_state.get("virtual_transactions"),
+        )
+        fees = quote.fee
+    fees = float(fees)
+    st.session_state["brokerage_plan"] = brokerage_plan
     realized_gain = 0.0
 
     if action == "ACHAT":
