@@ -9,6 +9,13 @@ from services.supabase_service import (
     load_cloud_state_into_session,
     supabase_is_configured,
 )
+from services.portfolio_persistence_service import (
+    hydrate_market_data,
+    persistence_health,
+    repair_session_pru_from_transactions,
+    save_live_valuation,
+    save_market_state,
+)
 from services.trading_service import (
     initialize_trading_state,
     reset_trading_state,
@@ -99,6 +106,11 @@ with st.spinner("Téléchargement des derniers cours disponibles…"):
     market_data = load_market_data(
         tuple(UNIVERSE["Ticker"].tolist())
     )
+    market_data = hydrate_market_data(market_data)
+    try:
+        save_market_state(market_data)
+    except Exception as error:
+        st.session_state["az_market_error"] = str(error)
 
 missing = market_data.loc[
     market_data["Statut données"] != "OK",
@@ -123,6 +135,18 @@ initialize_trading_state(
         )
     ),
 )
+
+repaired_pru = repair_session_pru_from_transactions()
+if repaired_pru:
+    save_current_state_to_cloud(
+        capital_reference,
+        float(
+            st.session_state.get(
+                "monthly_contribution",
+                1000.0,
+            )
+        ),
+    )
 
 initial_positions = build_default_positions(
     UNIVERSE,
@@ -220,8 +244,11 @@ new_positions = edited_positions[
 
 st.session_state.virtual_positions = new_positions.copy()
 
-if not new_positions.equals(previous_positions):
-    save_current_state_to_cloud(
+positions_changed = not new_positions.equals(
+    previous_positions
+)
+if positions_changed:
+    saved = save_current_state_to_cloud(
         capital_reference,
         float(
             st.session_state.get(
@@ -230,7 +257,33 @@ if not new_positions.equals(previous_positions):
             )
         ),
     )
+    if saved:
+        st.success(
+            "Quantités et PRU sauvegardés dans Supabase."
+        )
+    else:
+        st.error(
+            "La modification est visible localement, mais la "
+            "sauvegarde Supabase a échoué. Ne ferme pas la page "
+            "avant d'avoir rétabli la connexion."
+        )
 
+if st.button(
+    "☁️ Sauvegarder le portefeuille maintenant",
+    use_container_width=True,
+):
+    if save_current_state_to_cloud(
+        capital_reference,
+        float(
+            st.session_state.get(
+                "monthly_contribution",
+                1000.0,
+            )
+        ),
+    ):
+        st.success("Portefeuille sauvegardé dans Supabase.")
+    else:
+        st.error("Sauvegarde Supabase impossible.")
 
 df = (
     UNIVERSE.merge(
@@ -293,6 +346,37 @@ liquidites_virtuelles = float(
 valeur_totale = (
     valeur_positions + liquidites_virtuelles
 )
+
+latest_dates = pd.to_datetime(
+    df.get("Date du cours"),
+    errors="coerce",
+).dropna()
+latest_timestamp = (
+    latest_dates.max()
+    if not latest_dates.empty
+    else pd.NaT
+)
+portfolio_summary = {
+    "capital_reference": capital_reference,
+    "cash": liquidites_virtuelles,
+    "invested": montant_investi,
+    "positions_value": valeur_positions,
+    "total_value": valeur_totale,
+    "gain": plus_value,
+    "performance": (
+        plus_value / montant_investi * 100.0
+        if montant_investi > 0
+        else 0.0
+    ),
+    "active_lines": float(
+        (df["Quantité"] > 0).sum()
+    ),
+    "latest_timestamp": latest_timestamp,
+}
+try:
+    save_live_valuation(df, portfolio_summary)
+except Exception as error:
+    st.session_state["az_valuation_error"] = str(error)
 
 if valeur_positions > 0:
     df["Poids réel (%)"] = (
