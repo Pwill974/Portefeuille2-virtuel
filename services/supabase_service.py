@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
+import time
 
 import pandas as pd
 import streamlit as st
@@ -245,31 +246,59 @@ def fetch_cloud_state() -> dict[str, Any]:
 def load_cloud_state_into_session(force: bool = False) -> bool:
     """
     Charge Supabase dans st.session_state.
-    Retourne True lorsqu'une sauvegarde existante a été trouvée.
+
+    Une erreur réseau ne doit jamais provoquer la création puis
+    l'enregistrement d'un portefeuille neuf par-dessus le portefeuille
+    existant. Trois tentatives sont effectuées avant d'afficher l'erreur.
     """
     if not supabase_is_configured():
         st.session_state["az_cloud_configured"] = False
+        st.session_state["az_cloud_load_failed"] = False
         return False
 
     if (
         st.session_state.get("az_cloud_checked", False)
         and not force
     ):
-        return bool(st.session_state.get("az_cloud_has_data", False))
+        return bool(
+            st.session_state.get(
+                "az_cloud_has_data",
+                False,
+            )
+        )
 
-    try:
-        state = fetch_cloud_state()
-    except (SupabaseConfigurationError, SupabaseSyncError) as exc:
+    state = None
+    last_error: Exception | None = None
+
+    for attempt in range(3):
+        try:
+            state = fetch_cloud_state()
+            last_error = None
+            break
+        except (
+            SupabaseConfigurationError,
+            SupabaseSyncError,
+        ) as exc:
+            last_error = exc
+            if attempt < 2:
+                time.sleep(0.6 * (attempt + 1))
+
+    if state is None:
         st.session_state["az_cloud_configured"] = True
-        st.session_state["az_cloud_error"] = str(exc)
-        st.session_state["az_cloud_checked"] = True
+        st.session_state["az_cloud_error"] = str(
+            last_error
+            or "Lecture Supabase impossible."
+        )
+        st.session_state["az_cloud_checked"] = False
+        st.session_state["az_cloud_load_failed"] = True
         return False
 
     settings = state["settings"]
     positions = state["positions"]
     transactions = state["transactions"]
 
-    if not positions.empty:
+    # Lorsque Supabase a répondu, sa copie devient la référence.
+    if state["has_data"]:
         st.session_state.virtual_positions = positions.copy()
 
     if settings:
@@ -277,25 +306,40 @@ def load_cloud_state_into_session(force: bool = False) -> bool:
             settings.get("cash", 0) or 0
         )
         st.session_state.cloud_capital_reference = float(
-            settings.get("capital_reference", 10000) or 10000
+            settings.get(
+                "capital_reference",
+                10000,
+            )
+            or 10000
         )
         st.session_state.cloud_monthly_contribution = float(
-            settings.get("monthly_contribution", 1000) or 1000
+            settings.get(
+                "monthly_contribution",
+                1000,
+            )
+            or 1000
         )
 
     if not transactions.empty:
-        st.session_state.virtual_transactions = transactions.copy()
+        st.session_state.virtual_transactions = (
+            transactions.copy()
+        )
     elif state["has_data"]:
-        st.session_state.virtual_transactions = pd.DataFrame(
-            columns=LOCAL_TRANSACTION_COLUMNS
+        st.session_state.virtual_transactions = (
+            pd.DataFrame(
+                columns=LOCAL_TRANSACTION_COLUMNS
+            )
         )
 
     st.session_state["az_cloud_configured"] = True
     st.session_state["az_cloud_checked"] = True
-    st.session_state["az_cloud_has_data"] = bool(state["has_data"])
-    st.session_state["az_cloud_last_load"] = datetime.now(
-        timezone.utc
-    ).isoformat()
+    st.session_state["az_cloud_has_data"] = bool(
+        state["has_data"]
+    )
+    st.session_state["az_cloud_load_failed"] = False
+    st.session_state["az_cloud_last_load"] = (
+        datetime.now(timezone.utc).isoformat()
+    )
     st.session_state.pop("az_cloud_error", None)
 
     return bool(state["has_data"])
