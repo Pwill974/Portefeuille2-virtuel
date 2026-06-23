@@ -20,6 +20,13 @@ from services.supabase_service import (
     cloud_status,
     load_cloud_state_into_session,
 )
+from services.portfolio_persistence_service import (
+    hydrate_market_data,
+    persistence_health,
+    repair_session_pru_from_transactions,
+    save_live_valuation,
+    save_market_state,
+)
 from services.trading_service import (
     current_position,
     execute_trade,
@@ -86,6 +93,11 @@ with st.spinner("Chargement des cours…"):
     market_data = load_market_data(
         tuple(UNIVERSE["Ticker"].tolist())
     )
+    market_data = hydrate_market_data(market_data)
+    try:
+        save_market_state(market_data)
+    except Exception as error:
+        st.session_state["az_market_error"] = str(error)
 
 initialize_trading_state(
     UNIVERSE,
@@ -98,6 +110,7 @@ initialize_trading_state(
         )
     ),
 )
+repair_session_pru_from_transactions()
 
 positions = st.session_state.virtual_positions.copy()
 cash = float(st.session_state.virtual_cash)
