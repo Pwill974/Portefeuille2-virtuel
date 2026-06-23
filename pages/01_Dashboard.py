@@ -20,7 +20,17 @@ from services.supabase_service import (
     cloud_status,
     load_cloud_state_into_session,
 )
-from services.trading_service import initialize_trading_state
+from services.portfolio_persistence_service import (
+    hydrate_market_data,
+    persistence_health,
+    repair_session_pru_from_transactions,
+    save_live_valuation,
+    save_market_state,
+)
+from services.trading_service import (
+    initialize_trading_state,
+    save_current_state_to_cloud,
+)
 
 from services.portfolio_engine import (
     UNIVERSE,
@@ -308,6 +318,11 @@ with st.spinner("Analyse des cours, tendances et allocations…"):
     market_data, price_matrix = cached_market_bundle(
         tuple(UNIVERSE["Ticker"].tolist())
     )
+    market_data = hydrate_market_data(market_data)
+    try:
+        save_market_state(market_data)
+    except Exception as error:
+        st.session_state["az_market_error"] = str(error)
 
 initialize_trading_state(
     UNIVERSE,
@@ -315,6 +330,13 @@ initialize_trading_state(
     capital_reference,
     monthly_contribution,
 )
+
+repaired_pru = repair_session_pru_from_transactions()
+if repaired_pru:
+    save_current_state_to_cloud(
+        capital_reference,
+        monthly_contribution,
+    )
 
 st.session_state["capital_reference"] = capital_reference
 st.session_state["monthly_contribution"] = monthly_contribution
@@ -344,8 +366,25 @@ current_snapshot = build_snapshot(
 
 try:
     save_daily_snapshot(current_snapshot)
-except Exception:
-    pass
+    save_live_valuation(frame, summary)
+except Exception as error:
+    st.session_state["az_valuation_error"] = str(error)
+
+health = persistence_health(
+    st.session_state.virtual_positions
+)
+if st.session_state.get("az_cloud_load_failed"):
+    st.error(
+        "La copie Supabase n'a pas pu être chargée. "
+        "Le programme n'a pas recréé ni écrasé le portefeuille. "
+        "Actualise la page dans quelques instants."
+    )
+if not health["healthy"]:
+    st.warning(
+        f"{health['missing_pru']} ligne(s) active(s) ont un PRU nul. "
+        "La plus-value de ces lignes ne peut pas être calculée "
+        "tant que le PRU n'est pas renseigné."
+    )
 
 real_history = fetch_performance_history()
 total_fees = cumulative_fees(all_transactions)
