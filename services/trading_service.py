@@ -99,8 +99,18 @@ def initialize_trading_state(
     capital_reference: float,
     monthly_contribution: float = 1000.0,
 ) -> None:
-    """Charge le cloud puis initialise les valeurs absentes."""
+    """
+    Charge le cloud puis initialise seulement les valeurs réellement
+    absentes. En cas d'échec Supabase, aucune copie neuve n'est envoyée
+    dans la base.
+    """
     cloud_has_data = load_cloud_state_into_session()
+    cloud_load_failed = bool(
+        st.session_state.get(
+            "az_cloud_load_failed",
+            False,
+        )
+    )
 
     effective_capital = float(
         st.session_state.get(
@@ -115,19 +125,33 @@ def initialize_trading_state(
         )
     )
 
-    st.session_state["capital_reference"] = effective_capital
-    st.session_state["monthly_contribution"] = effective_monthly
+    st.session_state["capital_reference"] = (
+        effective_capital
+    )
+    st.session_state["monthly_contribution"] = (
+        effective_monthly
+    )
 
-    if (
+    positions_missing = (
         "virtual_positions" not in st.session_state
         or st.session_state.virtual_positions is None
         or st.session_state.virtual_positions.empty
-    ):
-        st.session_state.virtual_positions = build_default_positions(
-            universe,
-            market_data,
-            effective_capital,
-        )
+    )
+
+    if positions_missing:
+        if cloud_load_failed and supabase_is_configured():
+            # Évite de fabriquer un faux portefeuille au cours du jour.
+            st.session_state.virtual_positions = pd.DataFrame(
+                columns=["Ticker", "Quantité", "PRU (€)"]
+            )
+        else:
+            st.session_state.virtual_positions = (
+                build_default_positions(
+                    universe,
+                    market_data,
+                    effective_capital,
+                )
+            )
 
     st.session_state.virtual_positions = _clean_positions(
         st.session_state.virtual_positions
@@ -136,8 +160,12 @@ def initialize_trading_state(
     if "virtual_cash" not in st.session_state:
         invested_at_cost = float(
             (
-                st.session_state.virtual_positions["Quantité"]
-                * st.session_state.virtual_positions["PRU (€)"]
+                st.session_state.virtual_positions[
+                    "Quantité"
+                ]
+                * st.session_state.virtual_positions[
+                    "PRU (€)"
+                ]
             ).sum()
         )
         st.session_state.virtual_cash = max(
@@ -146,12 +174,18 @@ def initialize_trading_state(
         )
 
     if "virtual_transactions" not in st.session_state:
-        st.session_state.virtual_transactions = _empty_transactions()
+        st.session_state.virtual_transactions = (
+            _empty_transactions()
+        )
 
     if (
         supabase_is_configured()
         and not cloud_has_data
-        and not st.session_state.get("az_cloud_seeded", False)
+        and not cloud_load_failed
+        and not st.session_state.get(
+            "az_cloud_seeded",
+            False,
+        )
     ):
         if save_current_state_to_cloud(
             effective_capital,
