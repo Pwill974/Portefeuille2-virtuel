@@ -1,4 +1,4 @@
-name: Mise à jour portefeuille Alpha Zen
+9name: Mise à jour portefeuille Alpha Zen
 
 on:
   workflow_dispatch:
@@ -35,4 +35,4 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           SUPABASE_PROFILE_ID: ${{ secrets.SUPABASE_PROFILE_ID }}
-        run: python update_portfolio_background.py
+        run: python scripts/update_portfolio_background.py
